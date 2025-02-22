@@ -13,13 +13,27 @@
                 height: 100%;
 
                 background-color: black;
+            }
 
+            #canvas {
+                z-index: 0;
                 image-rendering: pixelated;
+            }
+
+            #blurredcanvas {
+                filter: blur(20px) brightness(700%);
+                z-index: 1;
+                opacity: 50%;
+            }
+
+            body {
+                cursor: url(images/cursor.png) 4 4, auto;
             }
         </style>
     </head>
     <body>
         <canvas id="canvas"></canvas>
+        <canvas id="blurredcanvas"></canvas>
         <script src="mouse.js"></script>
         <script src="main.js"></script>
     </body>
