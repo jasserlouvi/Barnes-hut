@@ -1,19 +1,23 @@
 const canvas = document.getElementById("canvas");
+const blurredcanvas = document.getElementById("blurredcanvas");
 const c = canvas.getContext("2d");
+const blurredc = blurredcanvas.getContext("2d");
 
 const screensize = { x: window.innerWidth, y: window.innerHeight };
 canvas.width = screensize.x;
 canvas.height = screensize.y;
+blurredcanvas.width = screensize.x;
+blurredcanvas.height = screensize.y;
 
 const positions = [];
 const velocities = [];
 
-const timescale = 0.01;
+const timescale = 0.005;
 
 // PERFORMANCE
-const topcellsize = 200;
-const minsize = 20; // smallest size a leaf node can be
-const codist = 5; // smaller number = more accurate, bigger number = less accurate
+const topcellsize = 400; // a bigger number lessens the impact stranded faraway particles has on the system
+const minsize = 10; // smallest size a leaf node can be
+const codist = 0.9; // smaller number = less accuracy, bigger number = more accuracy
 
 let DEBUGTYPE = 0; // 0: off, 1: quadtree visualized, 2: nodes visualized in force calculations
 
@@ -28,7 +32,7 @@ function addvectors(a, b) {
     return { x: a.x + b.x, y: a.y + b.y };
 }
 
-for (let i = 0; i < 60000; i++) {
+for (let i = 0; i < 6000; i++) {
     positions.push(createvector(Math.random() * screensize.x, Math.random() * screensize.y));
     //velocities.push(createvector(Math.random() * 4 - 2, Math.random() * 4 - 2));
     velocities.push(createvector(0, 0));
@@ -45,6 +49,12 @@ class zero { // you might think this is a joke, but its actually not :)
     calculateforce() {
         return [0, 0];
     }
+
+    showcalc() {
+        return [0, 0];
+    }
+
+    showsize() {}
 }
 
 let grid = [];
@@ -60,32 +70,23 @@ class quadtree {
 
         this.avgx = 0;
         this.avgy = 0;
-        if (DEBUGTYPE === 1) {
-            if (size === topcellsize) {
-                c.strokeStyle = "rgb(0, 255, 0)";
-            } else {
-                c.strokeStyle = "rgba(100, 100, 255, 0.2)";
-            }
-
-            c.beginPath();
-            c.strokeRect(x + camx + changex, y + camy + changey, size, size);
-        }
     }
     
     allocatepoint(pos) {
         if (pos.x > this.x + this.hs) {
             if (pos.y > this.y + this.hs) {
                 this.subcells[3].addpoint(pos); // bottom right is fourth quadrant
-            } else {
-                this.subcells[0].addpoint(pos); // top right is first quadrant
+                return;
             }
-        } else {
-            if (pos.y > this.y + this.hs) {
-                this.subcells[2].addpoint(pos); // bottom left is third quadrant
-            } else {
-                this.subcells[1].addpoint(pos); // top left is second quadrant
-            }
+            this.subcells[0].addpoint(pos); // top right is first quadrant
+            return;
         }
+
+        if (pos.y > this.y + this.hs) {
+            this.subcells[2].addpoint(pos); // bottom left is third quadrant
+            return;
+        }
+        this.subcells[1].addpoint(pos); // top left is second quadrant
     }
 
     addpoint(pos) {
@@ -149,7 +150,7 @@ class quadtree {
         let dy = this.avgy - pos.y;
 
         const pdist = dx * dx + dy * dy; // we can actually omit the square root
-        if (pdist < 225) return [0, 0];
+        if (pdist < 4) return [0, 0];
         
         if (this.sprouted && pdist < distsizes[this.s]) {
             let forcex = 0;
@@ -163,18 +164,62 @@ class quadtree {
 
             return [ forcex, forcey ];
         }
-        
-        if (DEBUGTYPE === 2) {
-            const d = (mousex - camx - changex - this.avgx) ** 2 + (mousey - camy - changey - this.avgy) ** 2;
-            if (d < distsizes[this.s] || this.s === topcellsize) {
-                c.strokeStyle = "rgb(255, 0, 0)";
-                c.beginPath();
-                c.strokeRect(this.x + camx + changex, this.y + camy + changey, this.s, this.s);
-            }
-        }
 
         const l = this.points.length;
         return [ dx / pdist * l, dy / pdist * l ]; // this is why we can omit square root
+    }
+
+    showcalc(pos) {
+        let dx = this.avgx - pos.x;
+        let dy = this.avgy - pos.y;
+
+        const pdist = dx * dx + dy * dy; // we can actually omit the square root
+        
+        if (this.sprouted && pdist < distsizes[this.s]) {
+            let forcex = 0;
+            let forcey = 0;
+            for (let i = 0; i < 4; i++) {
+                const f = this.subcells[i].showcalc(pos);
+                forcex += f[0];
+                forcey += f[1];
+            }
+
+            return [ forcex, forcey ];
+        }
+        
+        c.strokeStyle = "rgb(255, 0, 0)";
+        c.beginPath();
+        c.strokeRect(this.x + camx + changex, this.y + camy + changey, this.s, this.s);
+
+        const linex = (this.avgx + camx + changex) >>> 0;
+        const liney = (this.avgy + camy + changey) >>> 0;
+        c.strokeStyle = "rgb(0, 255, 0)";
+        c.beginPath();
+        c.moveTo(linex - 5, liney);
+        c.lineTo(linex + 5, liney);
+        c.stroke();
+        c.moveTo(linex, liney - 5);
+        c.lineTo(linex, liney + 5);
+        c.stroke();
+        
+        const l = this.points.length;
+        return [ dx / pdist * l, dy / pdist * l ];
+    }
+
+    showsize() {
+        if (this.s === topcellsize) {
+            c.strokeStyle = "rgb(0, 255, 0)";
+        } else {
+            c.strokeStyle = "rgba(100, 100, 255, 0.2)";
+        }
+
+        c.beginPath();
+        c.strokeRect(this.x + camx + changex, this.y + camy + changey, this.s, this.s);
+
+        if (this.sprouted === false) return;
+        for (let i = 0; i < 4; i++) {
+            this.subcells[i].showsize();
+        }
     }
 }
 
@@ -186,23 +231,30 @@ function renderparticles(offsetx, offsety) {
         if (px < 0 || px > screensize.x) continue;
 
         const index = (Math.floor(px) + screensize.x * Math.floor(positions[i].y + offsety)) << 2;
-        pixels.data[index] += 120;
-        pixels.data[index + 1] += 60;
-        pixels.data[index + 2] += 5;
+        pixels.data[index] += 120 && 255;
+        pixels.data[index + 1] += 60 && 255;
+        pixels.data[index + 2] += 5 && 255;
         pixels.data[index + 3] = 255;
     }
 
     c.putImageData(pixels, 0, 0);
+    blurredc.clearRect(0, 0, screensize.x, screensize.y);
+    blurredc.drawImage(canvas, 0, 0);
+    //blurredc.putImageData(pixels, 0, 0);// apply glowing effect
 }
 
-let lastdt = 0;
-function showfps(dt) {
+let lastdt = performance.now();
+function showfps() {
+    const dt = performance.now();
+
     c.textAlign = "center";
     c.fillStyle = "rgb(255, 255, 255)";
     c.font = "bold 15px monospace";
     c.fillText("FPS " + (1000 / (dt - lastdt)).toFixed(2), screensize.x / 2, screensize.y - 15);
-    lastdt = dt;
+    lastdt = performance.now();
 }
+
+
 
 function showposition() {
     c.textAlign = "center";
@@ -227,6 +279,12 @@ function buildquadtree() {
     for (let k in grid) {
         grid[k].finalizecell();
     }
+
+    if (DEBUGTYPE === 1) {
+        for (let k in grid) {
+            grid[k].showsize();
+        }
+    }
 }
 
 function calculatevelocities() {
@@ -240,6 +298,24 @@ function calculatevelocities() {
             velocity.y += vectorforce[1];
         }
     }
+
+    if (DEBUGTYPE === 2) { // shows cell calculations
+        const p = createvector(-camx - changex + mousex, -camy - changey + mousey);
+        const v = createvector(0, 0);
+        for (let k in grid) {
+            const f = grid[k].showcalc(p);
+            v.x += f[0];
+            v.y += f[1];
+        }
+
+        c.lineWidth = 1;
+        c.strokeStyle = "rgb(255, 255, 0)";
+        c.moveTo(mousex, mousey);
+        c.lineTo(mousex + v.x * 5, mousey + v.y * 5);
+        c.stroke();
+
+        c.fillText(Math.sqrt(v.x ** 2, v.y ** 2).toFixed(2) + "g", mousex, mousey - 30);
+    }
 }
 
 function applyvelocities() {
@@ -251,14 +327,14 @@ function applyvelocities() {
     }
 }
 
-function draw(dt) {
+function draw() {
     c.strokeStyle = "rgb(0, 0, 255)";
     renderparticles(camx + changex, camy + changey);
     buildquadtree();
     calculatevelocities();
     applyvelocities();
 
-    showfps(dt);
+    showfps();
     if (mousedown) showposition();
 
     requestAnimationFrame(draw);
